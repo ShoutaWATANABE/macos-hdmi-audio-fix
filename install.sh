@@ -59,7 +59,7 @@ cat > "$PLIST" <<EOF
 <plist version="1.0">
 <dict>
     <!-- HDMI / DisplayPort モニターの音声が出なくなる macOS の不具合を自動修復する。
-         https://github.com/<your-account>/macos-hdmi-audio-fix -->
+         https://github.com/ShoutaWATANABE/macos-hdmi-audio-fix -->
     <key>Label</key>
     <string>$LABEL</string>
     <key>ProgramArguments</key>

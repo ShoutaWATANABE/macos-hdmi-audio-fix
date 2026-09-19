@@ -51,7 +51,7 @@ IO Stopped Context ... after 0 frames.
 Xcode Command Line Tools が必要です（`xcode-select --install`）。
 
 ```sh
-git clone https://github.com/<your-account>/macos-hdmi-audio-fix.git
+git clone https://github.com/ShoutaWATANABE/macos-hdmi-audio-fix.git
 cd macos-hdmi-audio-fix
 ./install.sh
 ```
@@ -72,7 +72,9 @@ CLI の設置先は既定で `~/bin` です。変えるなら `BIN_DIR=~/.local/
 
 対象は**トランスポート種別が HDMI / DisplayPort の出力デバイスすべて**です。機種も UID も決め打ちしていないので、モニターを入れ替えてもそのまま動きます。
 
-最後に**既定出力を一瞬別デバイスへ切り替えて戻します**。Slack や Discord などの Electron（Chromium）アプリは出力デバイスをキャッシュするため、デバイスが作り直されると古いハンドルを掴んだまま無音になることがあります。デバイス変更通知を飛ばして再取得させるのが狙いです（効果は検証中）。
+最後に**既定出力を一瞬別デバイスへ切り替えて戻します**。Slack や Discord などの Electron（Chromium）アプリは出力デバイスをキャッシュするため、デバイスが作り直されると古いハンドルを掴んだまま無音になることがあります（**アプリを再起動すると直り、ログには再生記録すら残らない**のが特徴）。デバイス変更通知を飛ばして再取得させるのが狙いです。
+
+この対策を入れてからは Slack / Discord の通知音が鳴らない事象は再発していませんが、**元々が間欠的な症状なので確実に効いているとは言い切れません。**
 
 ## コマンド
 
