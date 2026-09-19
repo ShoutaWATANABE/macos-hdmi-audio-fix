@@ -1,0 +1,80 @@
+#!/bin/zsh
+# 直近の音声再生を一覧する。音が鳴らなかった直後に実行して、
+# 「そもそも再生されなかった」のか「再生されたが切れた」のかを切り分ける。
+set -u
+
+# audio-fix は PATH から探し、見つからなければ同じディレクトリを見る
+# （インストール先が PATH に入っていない環境でも動くように）
+AUDIO_FIX=$(command -v audio-fix 2>/dev/null || true)
+[[ -x ${AUDIO_FIX:-} ]] || AUDIO_FIX="${0:a:h}/audio-fix"
+[[ -x $AUDIO_FIX ]] || {
+  echo "audio-fix が見つかりません。install.sh を実行してください。" >&2
+  exit 1
+}
+
+MINS=${1:-10}
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/audio-last.XXXXXX")
+trap 'rm -rf "$WORK"' EXIT
+
+/usr/bin/log show --last "${MINS}m" --predicate 'process == "coreaudiod"' 2>/dev/null > "$WORK/log"
+# UID→デバイス名の対応は CoreAudio から取る（機種を決め打ちしない）
+"$AUDIO_FIX" devices 2>/dev/null > "$WORK/devices" || : > "$WORK/devices"
+
+python3 - "$WORK/log" "$WORK/devices" "$MINS" <<'PY'
+import re, sys
+
+logpath, devpath, mins = sys.argv[1], sys.argv[2], sys.argv[3]
+
+uid2name = {}
+for line in open(devpath, errors='ignore'):
+    if '\t' in line:
+        uid, nm = line.rstrip('\n').split('\t', 1)
+        uid2name[uid] = nm
+
+ctx2uid = {}
+for line in open(logpath, errors='ignore'):
+    m = re.search(r'IOWorkLoopInit: (\d+) (\S+?)[ :(]', line)
+    if m:
+        ctx2uid[m.group(1)] = m.group(2)
+
+
+def devname(uid):
+    if uid in uid2name:
+        return uid2name[uid]
+    # ログ中の UID は途中で切れていることがあるので前方一致でも探す
+    for k, v in uid2name.items():
+        if k.startswith(uid) or uid.startswith(k):
+            return v
+    return uid[:18]
+
+
+rows = []
+for line in open(logpath, errors='ignore'):
+    m = re.search(r'^(\S+ \S{8}).*IO Stopped Context (\d+) after (\d+) frames', line)
+    if m:
+        rows.append((m.group(1)[11:], devname(ctx2uid.get(m.group(2), '?')), int(m.group(3))))
+
+print(f"直近 {mins} 分の音声再生: {len(rows)} 件")
+print("─" * 62)
+if not rows:
+    print("  再生記録なし")
+    print("\n  → 音が鳴らなかったのに記録も無い場合、音声デバイスまで届いて")
+    print("     いません。アプリ側か macOS の通知設定が原因です。")
+    raise SystemExit
+
+print(f"{'時刻':<10}{'出力先':<20}{'長さ':>9}   判定")
+for t, dev, f in rows:
+    sec = f / 48000
+    if f == 0:
+        verdict = "★無音（デバイスが起動せず）"
+    elif sec < 0.5:
+        verdict = "★切れている"
+    else:
+        verdict = "OK"
+    print(f"{t:<10}{dev:<20}{sec:>7.2f}秒   {verdict}")
+
+bad = [r for r in rows if r[2] < 24000]
+print("─" * 62)
+print(f"  0.5秒未満の再生が {len(bad)} 件あります。" if bad
+      else "  すべて正常な長さで再生されています。")
+PY

@@ -1,0 +1,72 @@
+#!/bin/zsh
+# ディスプレイ音声が無音になったときの手動復旧。
+# 通常は常駐プロセスが自動で直すので、これは保険と検証用。
+# 無音かどうかを実測で判定し、復旧手段を順に試して、効いたものを報告する。
+set -u
+
+# audio-fix は PATH から探し、見つからなければ同じディレクトリを見る
+# （インストール先が PATH に入っていない環境でも動くように）
+AUDIO_FIX=$(command -v audio-fix 2>/dev/null || true)
+[[ -x ${AUDIO_FIX:-} ]] || AUDIO_FIX="${0:a:h}/audio-fix"
+[[ -x $AUDIO_FIX ]] || {
+  echo "audio-fix が見つかりません。install.sh を実行してください。" >&2
+  exit 1
+}
+SOUND=/System/Library/Sounds/Glass.aiff
+
+# 音を鳴らし、実際に再生されたフレーム数をログから読む。
+# 体感ではなく実測で判定するための仕掛け。
+test_audio() {
+  local t0 start elapsed frames
+  t0=$(date '+%Y-%m-%d %H:%M:%S')
+  start=$SECONDS
+  afplay "$SOUND" >/dev/null 2>&1
+  elapsed=$((SECONDS - start))
+  sleep 1
+  frames=$(/usr/bin/log show --start "$t0" --predicate 'process == "coreaudiod"' 2>/dev/null \
+    | grep -oE 'IO Stopped Context [0-9]+ after [0-9]+ frames' | tail -1 \
+    | sed -E 's/.* after ([0-9]+) frames/\1/')
+  if [[ -z "$frames" ]]; then
+    # ログが読めない場合は所要時間で判定（失敗時は約10秒待たされる）
+    if [[ $elapsed -lt 5 ]]; then echo "OK (${elapsed}秒)"; return 0
+    else echo "FAIL (${elapsed}秒)"; return 1; fi
+  fi
+  if [[ "$frames" -gt 0 ]]; then echo "OK (${frames} フレーム)"; return 0
+  else echo "FAIL (0 フレーム)"; return 1; fi
+}
+
+try() {  # try <説明> <コマンド...>
+  local label=$1; shift
+  echo ""
+  echo "▶ $label"
+  "$@" 2>&1 | sed 's/^/    /'
+  sleep 1
+  printf '  結果: '
+  if test_audio; then
+    echo ""
+    echo "════════════════════════════════════════"
+    echo " 復旧しました。効いた手段: $label"
+    echo "════════════════════════════════════════"
+    exit 0
+  fi
+}
+
+echo "ディスプレイ音声 復旧ツール"
+echo "────────────────────────────"
+"$AUDIO_FIX" status
+printf '現在の状態: '
+if test_audio; then echo "→ 正常です。復旧の必要はありません。"; exit 0; fi
+
+echo ""
+echo "無音を確認しました。復旧手段を順に試します。"
+
+try "① サンプルレートの往復（既知の有効な手段）" "$AUDIO_FIX" repair
+try "② 既定出力の退避と復帰"                    "$AUDIO_FIX" bounce-default
+
+echo ""
+echo "════════════════════════════════════════"
+echo " ソフトウェアでは復旧できませんでした。"
+echo " モニターの電源を入れ直してください。"
+echo " （その前に入力ソース切り替えボタンも試す価値があります）"
+echo "════════════════════════════════════════"
+exit 1
