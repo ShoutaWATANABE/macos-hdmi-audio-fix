@@ -17,11 +17,19 @@ SOUND=/System/Library/Sounds/Glass.aiff
 # 音を鳴らし、実際に再生されたフレーム数をログから読む。
 # 体感ではなく実測で判定するための仕掛け。
 test_audio() {
-  local t0 start elapsed frames
+  # zsh では $status は $? の別名なので、終了ステータスの控えは rc に置く
+  local t0 start elapsed frames rc
   t0=$(date '+%Y-%m-%d %H:%M:%S')
   start=$SECONDS
   afplay "$SOUND" >/dev/null 2>&1
+  rc=$?
   elapsed=$((SECONDS - start))
+  # afplay 自体が失敗した場合（出力デバイスが無い等）は数秒で返るため、
+  # 所要時間では正常と区別できない。終了ステータスで先に弾く。
+  if (( rc != 0 )); then
+    echo "FAIL (afplay が終了ステータス $rc で失敗)"
+    return 1
+  fi
   sleep 1
   frames=$(/usr/bin/log show --start "$t0" --predicate 'process == "coreaudiod"' 2>/dev/null \
     | grep -oE 'IO Stopped Context [0-9]+ after [0-9]+ frames' | tail -1 \
@@ -40,6 +48,10 @@ try() {  # try <説明> <コマンド...>
   echo ""
   echo "▶ $label"
   "$@" 2>&1 | sed 's/^/    /'
+  # パイプの左側（復旧コマンド本体）の終了ステータスを見る。
+  # audio-fix は CoreAudio への書き込みが効かなかった場合に非ゼロで終わる。
+  local rc=${pipestatus[1]}
+  (( rc == 0 )) || echo "    ※ このコマンドは終了ステータス $rc で終了しました（一部の手順が失敗）"
   sleep 1
   printf '  結果: '
   if test_audio; then
